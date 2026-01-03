@@ -59,9 +59,9 @@
             try {
                 log("1. Solicitando dispositivo...");
                 
-                // IMPORTANTE: Añadimos optionalServices para evitar bloqueos de seguridad
+                // CAMBIO: Quitamos filters y ponemos acceptAllDevices
                 const device = await navigator.bluetooth.requestDevice({
-                    filters: [{ services: [SERVICE_UUID] }],
+                    acceptAllDevices: true,
                     optionalServices: [SERVICE_UUID] 
                 });
 
@@ -112,4 +112,5 @@
         }
     </script>
 </body>
+
 </html>

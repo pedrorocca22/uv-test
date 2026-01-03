@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>UV Pro Diagnóstico</title>
+    <style>
+        :root { --bg: #0a0a0c; --card: #16161a; --prim: #5d12de; --txt: #ffffff; --acc: #00FF9D; }
+        body { 
+            font-family: monospace; background: var(--bg); color: var(--txt); 
+            margin: 0; padding: 10px; display: flex; flex-direction: column; align-items: center; 
+        }
+        .card { 
+            background: var(--card); border: 1px solid #333; border-radius: 15px; 
+            padding: 20px; width: 100%; max-width: 350px; text-align: center; margin-bottom: 10px;
+        }
+        .val-big { font-size: 3rem; font-weight: bold; margin: 10px 0; color: var(--acc); }
+        button {
+            background: var(--prim); color: white; padding: 15px; width: 100%;
+            border: none; border-radius: 10px; font-size: 1.1rem; font-weight: bold; cursor: pointer;
+        }
+        /* CONSOLA DE DIAGNÓSTICO */
+        #console-log {
+            width: 100%; max-width: 350px; height: 200px;
+            background: #000; border: 1px solid #333; color: #0f0;
+            padding: 10px; overflow-y: scroll; font-size: 0.7rem;
+            text-align: left; margin-top: 10px; box-sizing: border-box;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <div>IRRADIANCIA</div>
+        <div id="irr" class="val-big">0.00</div>
+        <div>mW/cm²</div>
+    </div>
+    
+    <div class="card">
+        <button id="btn" onclick="conectar()">CONECTAR SENSOR</button>
+    </div>
+
+    <div>LOG DEL SISTEMA:</div>
+    <div id="console-log">Esperando acción...<br></div>
+
+    <script>
+        // UUIDs DEBEN COINCIDIR EXACTAMENTE CON EL ESP32
+        const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
+        const CHAR_UUID    = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
+
+        function log(msg) {
+            const c = document.getElementById('console-log');
+            const time = new Date().toLocaleTimeString();
+            c.innerHTML += `[${time}] ${msg}<br>`;
+            c.scrollTop = c.scrollHeight;
+        }
+
+        async function conectar() {
+            try {
+                log("1. Solicitando dispositivo...");
+                
+                // IMPORTANTE: Añadimos optionalServices para evitar bloqueos de seguridad
+                const device = await navigator.bluetooth.requestDevice({
+                    filters: [{ services: [SERVICE_UUID] }],
+                    optionalServices: [SERVICE_UUID] 
+                });
+
+                log("2. Conectando a servidor GATT...");
+                const server = await device.gatt.connect();
+
+                log("3. Buscando Servicio...");
+                const service = await server.getPrimaryService(SERVICE_UUID);
+
+                log("4. Buscando Característica...");
+                const characteristic = await service.getCharacteristic(CHAR_UUID);
+
+                log("5. Iniciando Notificaciones...");
+                await characteristic.startNotifications();
+
+                log("6. Añadiendo Listener...");
+                characteristic.addEventListener('characteristicvaluechanged', handleData);
+
+                log(">>> ¡CONEXIÓN EXITOSA! <<<");
+                document.getElementById('btn').innerText = "CONECTADO";
+                document.getElementById('btn').style.background = "#222";
+
+                device.addEventListener('gattserverdisconnected', () => {
+                    log("!!! DESCONECTADO !!!");
+                    alert("Se perdió la conexión");
+                });
+
+            } catch (error) {
+                log("ERROR CRÍTICO: " + error);
+            }
+        }
+
+        function handleData(event) {
+            try {
+                // Decodificar bytes a texto
+                const dec = new TextDecoder();
+                const raw = dec.decode(event.target.value);
+                
+                log("RX: " + raw); // Mostrar lo que llega crudo
+
+                const parts = raw.split('|');
+                if(parts.length >= 1) {
+                    document.getElementById('irr').innerText = parseFloat(parts[0]).toFixed(2);
+                }
+            } catch (e) {
+                log("Error parsing data: " + e);
+            }
+        }
+    </script>
+</body>
+</html>

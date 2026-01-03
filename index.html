@@ -3,114 +3,76 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>UV Pro Diagnóstico</title>
+    <title>UV Pro Test V2</title>
     <style>
-        :root { --bg: #0a0a0c; --card: #16161a; --prim: #5d12de; --txt: #ffffff; --acc: #00FF9D; }
-        body { 
-            font-family: monospace; background: var(--bg); color: var(--txt); 
-            margin: 0; padding: 10px; display: flex; flex-direction: column; align-items: center; 
-        }
-        .card { 
-            background: var(--card); border: 1px solid #333; border-radius: 15px; 
-            padding: 20px; width: 100%; max-width: 350px; text-align: center; margin-bottom: 10px;
-        }
-        .val-big { font-size: 3rem; font-weight: bold; margin: 10px 0; color: var(--acc); }
-        button {
-            background: var(--prim); color: white; padding: 15px; width: 100%;
-            border: none; border-radius: 10px; font-size: 1.1rem; font-weight: bold; cursor: pointer;
-        }
-        /* CONSOLA DE DIAGNÓSTICO */
-        #console-log {
-            width: 100%; max-width: 350px; height: 200px;
-            background: #000; border: 1px solid #333; color: #0f0;
-            padding: 10px; overflow-y: scroll; font-size: 0.7rem;
-            text-align: left; margin-top: 10px; box-sizing: border-box;
-        }
+        :root { --bg: #000; --txt: #0f0; --btn: #333; }
+        body { font-family: monospace; background: var(--bg); color: var(--txt); padding: 20px; }
+        button { background: var(--btn); color: #fff; padding: 15px; width: 100%; border: 1px solid #fff; margin-bottom: 10px; font-weight:bold;}
+        #log { border: 1px solid #555; height: 300px; overflow-y: scroll; padding: 10px; font-size: 0.8rem;}
     </style>
 </head>
 <body>
-
-    <div class="card">
-        <div>IRRADIANCIA</div>
-        <div id="irr" class="val-big">0.00</div>
-        <div>mW/cm²</div>
-    </div>
+    <h2>DIAGNÓSTICO V2</h2>
+    <h1 id="val">--</h1>
     
-    <div class="card">
-        <button id="btn" onclick="conectar()">CONECTAR SENSOR</button>
-    </div>
+    <button onclick="conectar()">1. CONECTAR</button>
+    <button onclick="leerManual()" id="btnRead" disabled>2. FORZAR LECTURA (Manual)</button>
 
-    <div>LOG DEL SISTEMA:</div>
-    <div id="console-log">Esperando acción...<br></div>
+    <div id="log">Logs aparecerán aquí...<br></div>
 
     <script>
-        // UUIDs DEBEN COINCIDIR EXACTAMENTE CON EL ESP32
         const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
         const CHAR_UUID    = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
+        let miCaracteristica;
 
         function log(msg) {
-            const c = document.getElementById('console-log');
-            const time = new Date().toLocaleTimeString();
-            c.innerHTML += `[${time}] ${msg}<br>`;
-            c.scrollTop = c.scrollHeight;
+            const d = document.getElementById('log');
+            d.innerHTML = `> ${msg}<br>` + d.innerHTML;
         }
 
         async function conectar() {
             try {
-                log("1. Solicitando dispositivo...");
-                
-                // CAMBIO: Quitamos filters y ponemos acceptAllDevices
+                log("Buscando...");
                 const device = await navigator.bluetooth.requestDevice({
                     acceptAllDevices: true,
-                    optionalServices: [SERVICE_UUID] 
+                    optionalServices: [SERVICE_UUID]
                 });
-
-                log("2. Conectando a servidor GATT...");
+                
+                log("Conectando GATT...");
                 const server = await device.gatt.connect();
-
-                log("3. Buscando Servicio...");
+                
+                log("Obteniendo Servicio...");
                 const service = await server.getPrimaryService(SERVICE_UUID);
+                
+                log("Obteniendo Característica...");
+                miCaracteristica = await service.getCharacteristic(CHAR_UUID);
 
-                log("4. Buscando Característica...");
-                const characteristic = await service.getCharacteristic(CHAR_UUID);
+                // Intento de suscripción automática
+                log("Suscribiendo...");
+                await miCaracteristica.startNotifications();
+                miCaracteristica.addEventListener('characteristicvaluechanged', mostrarDato);
+                
+                document.getElementById('btnRead').disabled = false;
+                log("¡CONECTADO! Esperando datos...");
 
-                log("5. Iniciando Notificaciones...");
-                await characteristic.startNotifications();
-
-                log("6. Añadiendo Listener...");
-                characteristic.addEventListener('characteristicvaluechanged', handleData);
-
-                log(">>> ¡CONEXIÓN EXITOSA! <<<");
-                document.getElementById('btn').innerText = "CONECTADO";
-                document.getElementById('btn').style.background = "#222";
-
-                device.addEventListener('gattserverdisconnected', () => {
-                    log("!!! DESCONECTADO !!!");
-                    alert("Se perdió la conexión");
-                });
-
-            } catch (error) {
-                log("ERROR CRÍTICO: " + error);
-            }
+            } catch (e) { log("ERROR: " + e); }
         }
 
-        function handleData(event) {
+        async function leerManual() {
+            if (!miCaracteristica) return log("No conectado");
             try {
-                // Decodificar bytes a texto
-                const dec = new TextDecoder();
-                const raw = dec.decode(event.target.value);
-                
-                log("RX: " + raw); // Mostrar lo que llega crudo
+                log("Leyendo manualmente...");
+                const valor = await miCaracteristica.readValue(); // Petición manual
+                mostrarDato({ target: { value: valor } });
+            } catch (e) { log("Error lectura: " + e); }
+        }
 
-                const parts = raw.split('|');
-                if(parts.length >= 1) {
-                    document.getElementById('irr').innerText = parseFloat(parts[0]).toFixed(2);
-                }
-            } catch (e) {
-                log("Error parsing data: " + e);
-            }
+        function mostrarDato(event) {
+            const dec = new TextDecoder();
+            const txt = dec.decode(event.target.value);
+            log("RX: " + txt);
+            document.getElementById('val').innerText = txt.split('|')[0];
         }
     </script>
 </body>
-
 </html>
